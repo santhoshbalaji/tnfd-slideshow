@@ -40,7 +40,23 @@
     },
     "tablesDB": [],
     "tables": [],
-    "buckets": [],
+    "buckets": [
+        {
+            "$id": "media-bucket",
+            "name": "media",
+            "permissions": [
+                "read(\"any\")",
+                "create(\"any\")",
+                "update(\"any\")",
+                "delete(\"any\")"
+            ],
+            "fileSecurity": true,
+            "enabled": true,
+            "compression": "gzip",
+            "encryption": true,
+            "antivirus": true
+        }
+    ],
     "teams": [],
     "topics": []
 }
