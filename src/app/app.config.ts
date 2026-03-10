@@ -1,6 +1,7 @@
-import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
+import { ApplicationConfig, provideBrowserGlobalErrorListeners, isDevMode } from '@angular/core';
 import { provideRouter, Routes } from '@angular/router';
 import { authGuard } from './guards/auth.guard';
+import { provideServiceWorker } from '@angular/service-worker';
 
 const routes: Routes = [
   { path: '', redirectTo: 'upload', pathMatch: 'full' },
@@ -20,6 +21,9 @@ const routes: Routes = [
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
-    provideRouter(routes),
+    provideRouter(routes), provideServiceWorker('ngsw-worker.js', {
+            enabled: !isDevMode(),
+            registrationStrategy: 'registerWhenStable:30000'
+          }),
   ]
 };

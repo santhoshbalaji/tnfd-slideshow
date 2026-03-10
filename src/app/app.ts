@@ -10,7 +10,10 @@ import { AppwriteService } from './services/appwrite.service';
   template: `
     <nav class="navbar" *ngIf="auth.isAdmin()">
       <div class="nav-container">
-        <a routerLink="/" class="logo">TNFD Slideshow</a>
+        <a routerLink="/" class="logo">
+          <img src="/icons/icon-72x72.png" alt="TNFD Logo" class="logo-img">
+          <span>TNFD Slideshow</span>
+        </a>
         
         <div class="nav-links" *ngIf="auth.user() as user">
           <a routerLink="/upload" routerLinkActive="active" class="nav-link">Upload</a>
@@ -56,11 +59,20 @@ import { AppwriteService } from './services/appwrite.service';
     }
 
     .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
       font-size: 1.5rem;
       font-weight: 700;
       text-decoration: none;
       color: #60a5fa;
       letter-spacing: -0.025em;
+    }
+
+    .logo-img {
+      height: 2.25rem;
+      width: auto;
+      object-fit: contain;
     }
 
     .nav-links {
