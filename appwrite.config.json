@@ -38,8 +38,46 @@
             }
         }
     },
-    "tablesDB": [],
-    "tables": [],
+    "tablesDB": [
+        {
+            "$id": "slideshow",
+            "name": "slideshow"
+        }
+    ],
+    "tables": [
+        {
+            "$id": "settings",
+            "databaseId": "slideshow",
+            "name": "settings",
+            "enabled": true,
+            "documentSecurity": false,
+            "permissions": [
+                "read(\"any\")",
+                "create(\"users\")",
+                "update(\"users\")",
+                "delete(\"users\")"
+            ],
+            "columns": [
+                {
+                    "key": "slideDuration",
+                    "type": "integer",
+                    "required": false,
+                    "default": 30000,
+                    "min": 5000,
+                    "max": 300000
+                },
+                {
+                    "key": "videoSlideDuration",
+                    "type": "integer",
+                    "required": false,
+                    "default": 120000,
+                    "min": 10000,
+                    "max": 600000
+                }
+            ],
+            "indexes": []
+        }
+    ],
     "buckets": [
         {
             "$id": "media-bucket",
