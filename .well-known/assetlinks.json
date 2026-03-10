@@ -1,0 +1,14 @@
+[
+    {
+        "relation": [
+            "delegate_permission/common.handle_all_urls"
+        ],
+        "target": {
+            "namespace": "android_app",
+            "package_name": "in.tnforest.slideshows.twa",
+            "sha256_cert_fingerprints": [
+                "CC:BB:A4:64:C7:8E:B3:F4:C0:36:6E:85:57:BF:43:71:EF:70:DE:56:4C:9A:E8:D5:FC:D4:44:E3:9D:1B:80:91"
+            ]
+        }
+    }
+]

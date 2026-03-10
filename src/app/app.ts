@@ -27,7 +27,7 @@ import { AppwriteService } from './services/appwrite.service';
       </div>
     </nav>
 
-    <main class="content" [class.full-screen]="!auth.isAdmin() && auth.user()">
+    <main class="content" [class.full-screen]="!auth.isAdmin()">
       <router-outlet />
     </main>
   `,
