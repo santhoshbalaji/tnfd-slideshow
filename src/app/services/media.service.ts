@@ -38,10 +38,12 @@ export class MediaService {
                 Query.offset(offset)
             ]);
 
-            const pptxFiles = response.files.filter(file => {
+            const mediaFiles = response.files.filter(file => {
                 const mimeType = file.mimeType.toLowerCase();
                 const name = file.name.toLowerCase();
                 return (
+                    mimeType.startsWith('image/') ||
+                    mimeType.startsWith('video/') ||
                     mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
                     mimeType === 'application/vnd.ms-powerpoint' ||
                     name.endsWith('.pptx') ||
@@ -49,13 +51,20 @@ export class MediaService {
                 );
             });
 
-            const items = pptxFiles.map(file => {
+            const items = mediaFiles.map(file => {
+                const mimeType = file.mimeType.toLowerCase();
+                let type: 'image' | 'video' | 'pptx' = 'pptx';
+
+                if (mimeType.startsWith('image/')) type = 'image';
+                else if (mimeType.startsWith('video/')) type = 'video';
+
                 return {
                     id: file.$id,
                     url: this.appwrite.storage.getFileView(this.BUCKET_ID, file.$id).toString(),
-                    type: 'pptx' as const,
+                    type,
                     name: file.name,
-                    size: file.sizeOriginal
+                    size: file.sizeOriginal,
+                    slideCount: type === 'pptx' ? undefined : 1
                 };
             });
 

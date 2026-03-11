@@ -11,8 +11,8 @@ import { FormsModule } from '@angular/forms';
   template: `
     <div class="upload-container">
       <header class="section-header">
-        <h1>Upload PowerPoint Presentations</h1>
-        <p>Add PowerPoint (.pptx) presentation files to your slideshow (Stored on Appwrite)</p>
+        <h1>Upload Media Files</h1>
+        <p>Add PowerPoint (.pptx), Images, and Videos to your slideshow (Stored on Appwrite)</p>
       </header>
 
       <section class="settings-card">
@@ -106,7 +106,7 @@ import { FormsModule } from '@angular/forms';
           #fileInput 
           type="file" 
           multiple 
-          accept=".pptx,.ppt,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint" 
+          accept=".pptx,.ppt,image/*,video/*" 
           (change)="onFileSelected($event)" 
           hidden
         >
@@ -138,21 +138,29 @@ import { FormsModule } from '@angular/forms';
             <tr *ngFor="let item of mediaService.items()">
               <td class="preview-cell">
                 <div class="table-preview">
-                  <div class="pptx-icon-small">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                    </svg>
-                  </div>
+                  <ng-container [ngSwitch]="item.type">
+                    <img *ngSwitchCase="'image'" [src]="item.url" class="img-preview-sm">
+                    <div *ngSwitchCase="'video'" class="video-preview-sm">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+                      </svg>
+                    </div>
+                    <div *ngSwitchDefault class="pptx-icon-small">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                      </svg>
+                    </div>
+                  </ng-container>
                 </div>
               </td>
               <td class="name-cell">{{ item.name }}</td>
               <td>
-                <span class="type-badge pptx">pptx</span>
+                <span class="type-badge" [ngClass]="item.type">{{ item.type }}</span>
               </td>
               <td>{{ (item.size / 1024 / 1024) | number:'1.1-1' }} MB</td>
               <td>
-                <span class="slide-count-badge" *ngIf="item.slideCount; else noSlides">{{ item.slideCount }}</span>
-                <ng-template #noSlides><span class="slide-count-loading">...</span></ng-template>
+                <span class="slide-count-badge" *ngIf="item.type === 'pptx' && item.slideCount; else otherTypeCount">{{ item.slideCount }}</span>
+                <ng-template #otherTypeCount><span class="no-video-txt">—</span></ng-template>
               </td>
               <td class="video-dur-cell">
                 <div class="video-dur-input-wrap" *ngIf="item.videoSlides?.length; else noVideo">
@@ -220,7 +228,7 @@ import { FormsModule } from '@angular/forms';
       </div>
 
       <div class="empty-state" *ngIf="mediaService.items().length === 0 && !isUploading()">
-        <p>No presentations uploaded yet. Start by adding some PowerPoint (.pptx) files!</p>
+        <p>No media files uploaded yet. Start by adding some PowerPoint (.pptx), Images, or Videos!</p>
       </div>
 
       <!-- Custom Confirmation Modal -->
@@ -550,6 +558,22 @@ import { FormsModule } from '@angular/forms';
       height: 1.5rem;
       color: #ea580c; /* Orange for PPTX */
     }
+
+    .video-preview-sm {
+      width: 1.5rem;
+      height: 1.5rem;
+      color: #60a5fa;
+    }
+
+    .img-preview-sm {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .type-badge.image { background: rgba(52, 211, 153, 0.1); color: #34d399; }
+    .type-badge.video { background: rgba(96, 165, 250, 0.1); color: #60a5fa; }
+    .type-badge.pptx { background: rgba(234, 88, 12, 0.1); color: #ea580c; }
 
     .name-cell {
       font-weight: 600;

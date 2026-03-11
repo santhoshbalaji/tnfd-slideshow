@@ -1,10 +1,10 @@
 import { Component, inject, signal, computed, OnInit, OnDestroy, effect, ViewChild, ElementRef, AfterViewInit } from '@angular/core';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { MediaService } from '../../services/media.service';
 import { AppwriteService } from '../../services/appwrite.service';
 import { SettingsService } from '../../services/settings.service';
+import { init } from 'pptx-preview';
 
 @Component({
   selector: 'app-slideshow',
@@ -16,20 +16,24 @@ import { SettingsService } from '../../services/settings.service';
 
         <!-- Double-buffer: Two iframes layered. The "back" one preloads; they swap on transition. -->
         <div class="media-display">
-          <iframe
-            #frameA
-            class="slide-frame"
-            [class.on-top]="activeBuffer() === 'A'"
-            [class.fading-in]="bufferTransitioning() && activeBuffer() === 'A'"
-            frameborder="0"
-          ></iframe>
-          <iframe
-            #frameB
-            class="slide-frame"
-            [class.on-top]="activeBuffer() === 'B'"
-            [class.fading-in]="bufferTransitioning() && activeBuffer() === 'B'"
-            frameborder="0"
-          ></iframe>
+          <!-- Buffer A -->
+          <div class="slide-frame" [class.on-top]="activeBuffer() === 'A'" [class.fading-in]="bufferTransitioning() && activeBuffer() === 'A'">
+            <div #frameA class="pptx-container">
+               <ng-container *ngIf="itemA(); let item">
+                 <img *ngIf="item.type === 'image'" [src]="item.url" class="full-media">
+                 <video *ngIf="item.type === 'video'" [src]="item.url" class="full-media" muted playsinline (ended)="onVideoEnded()"></video>
+               </ng-container>
+            </div>
+          </div>
+          <!-- Buffer B -->
+          <div class="slide-frame" [class.on-top]="activeBuffer() === 'B'" [class.fading-in]="bufferTransitioning() && activeBuffer() === 'B'">
+            <div #frameB class="pptx-container">
+               <ng-container *ngIf="itemB(); let item">
+                  <img *ngIf="item.type === 'image'" [src]="item.url" class="full-media">
+                  <video *ngIf="item.type === 'video'" [src]="item.url" class="full-media" muted playsinline (ended)="onVideoEnded()"></video>
+               </ng-container>
+            </div>
+          </div>
         </div>
 
         <div class="controls-overlay" [class.visible]="controlsVisible()">
@@ -46,6 +50,7 @@ import { SettingsService } from '../../services/settings.service';
                  {{ isPlaying() ? 'PAUSE' : 'PLAY' }}
               </button>
               <button class="file-nav-btn" (click)="switchToFile(activeIndex() + 1)">NEXT FILE</button>
+              <button class="file-nav-btn" (click)="forceRefresh()">REFRESH</button>
             </div>
           </div>
 
@@ -108,13 +113,52 @@ import { SettingsService } from '../../services/settings.service';
     .slide-frame {
       position: absolute;
       inset: 0;
-      width: 100%;
-      height: 100%;
-      border: none;
+      width: 100vw;
+      height: 100vh;
       background: #000;
       opacity: 0;
       transition: opacity 0.8s ease-in-out;
       z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* Force 16:9 aspect ratio for the content if it's not already */
+    :host ::ng-deep .pptx-wrapper,
+    :host ::ng-deep .pptx-container {
+       width: 100vw !important;
+       height: 100vh !important;
+       max-width: 100vw !important;
+       max-height: 100vh !important;
+       display: flex !important;
+       align-items: center !important;
+       justify-content: center !important;
+       background: #000 !important;
+    }
+
+    :host ::ng-deep canvas, 
+    :host ::ng-deep svg, 
+    :host ::ng-deep img,
+    .full-media {
+       width: 100% !important;
+       height: 100% !important;
+       object-fit: contain; /* ensures full slide is visible without cropping */
+    }
+
+    :host ::ng-deep .pptx-slide {
+      box-shadow: none !important;
+      border: none !important;
+      margin: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    /* Hide library native controls */
+    :host ::ng-deep .pptx-preview-wrapper-next,
+    :host ::ng-deep .pptx-preview-wrapper-pagination {
+      display: none !important;
     }
 
     /* The active (front) buffer is fully visible */
@@ -326,10 +370,13 @@ export class SlideshowComponent implements OnInit, OnDestroy, AfterViewInit {
   mediaService = inject(MediaService);
   auth = inject(AppwriteService);
   settingsService = inject(SettingsService);
-  private sanitizer = inject(DomSanitizer);
 
-  @ViewChild('frameA') frameA!: ElementRef<HTMLIFrameElement>;
-  @ViewChild('frameB') frameB!: ElementRef<HTMLIFrameElement>;
+  @ViewChild('frameA') frameA!: ElementRef<HTMLDivElement>;
+  @ViewChild('frameB') frameB!: ElementRef<HTMLDivElement>;
+
+  private previewerA?: any;
+  private previewerB?: any;
+  private cachedBuffers = new Map<string, ArrayBuffer>();
 
   activeIndex = signal(0);
   currentSlideIndex = signal(1);
@@ -341,6 +388,10 @@ export class SlideshowComponent implements OnInit, OnDestroy, AfterViewInit {
   activeBuffer = signal<'A' | 'B'>('A');
   // True during the crossfade animation window
   bufferTransitioning = signal(false);
+
+  // Buffer-specific items to prevent flickering during crossfade
+  itemA = signal<any>(null);
+  itemB = signal<any>(null);
 
   private intervalId: any;
   private controlsTimeout: any;
@@ -406,26 +457,132 @@ export class SlideshowComponent implements OnInit, OnDestroy, AfterViewInit {
     this.startTimer();
   }
 
-  // Returns the iframe element for a given buffer key
-  private getFrame(buffer: 'A' | 'B'): HTMLIFrameElement {
+  // Returns the div element for a given buffer key
+  private getFrame(buffer: 'A' | 'B'): HTMLDivElement {
     return buffer === 'A' ? this.frameA.nativeElement : this.frameB.nativeElement;
+  }
+
+  private getPreviewer(buffer: 'A' | 'B'): any {
+    const frame = buffer === 'A' ? this.frameA : this.frameB;
+    if (!frame) {
+      console.warn(`[PPTX] Frame ${buffer} not found in template yet`);
+      return null;
+    }
+
+    // For 16:9 TV, we want standard 16:9 base or window dimensions
+    const width = window.innerWidth || 1920;
+    const height = (width * 9) / 16;
+
+    const options = {
+      mode: 'slide' as const,
+      width: width,
+      height: height
+    };
+
+    if (buffer === 'A') {
+      if (!this.previewerA) {
+        console.log('[PPTX] Initializing Previewer A with options:', options);
+        this.previewerA = init(frame.nativeElement, options);
+      }
+      return this.previewerA;
+    } else {
+      if (!this.previewerB) {
+        console.log('[PPTX] Initializing Previewer B with options:', options);
+        this.previewerB = init(frame.nativeElement, options);
+      }
+      return this.previewerB;
+    }
   }
 
   private backBuffer(): 'A' | 'B' {
     return this.activeBuffer() === 'A' ? 'B' : 'A';
   }
 
-  // Load a specific slide URL into a buffer iframe
-  private loadBuffer(buffer: 'A' | 'B', fileIndex: number, slideIndex: number) {
+  // Load a specific slide into a buffer div
+  private async loadBuffer(buffer: 'A' | 'B', fileIndex: number, slideIndex: number) {
     const items = this.mediaService.items();
-    if (!items.length || fileIndex < 0 || fileIndex >= items.length) return;
-    const url = this.prepareOfficeUrl(items[fileIndex].url, slideIndex);
+    if (!items.length || fileIndex < 0 || fileIndex >= items.length) {
+      console.warn('No items or invalid index', { length: items.length, fileIndex });
+      return;
+    }
+
+    const item = items[fileIndex];
+    if (!item) return;
+
+    // Set buffer-specific item for template rendering (images/videos)
+    if (buffer === 'A') this.itemA.set(item);
+    else this.itemB.set(item);
+
+    if (item.type !== 'pptx') {
+      console.log(`[SLIDESHOW] Handled ${item.type} media for buffer ${buffer}: ${item.name}`);
+      // For images and videos, we clear any previous PPTX content to be safe
+      const frame = this.getFrame(buffer);
+      const wrapper = frame.querySelector('.pptx-wrapper');
+      if (wrapper) wrapper.innerHTML = '';
+
+      if (item.type === 'video') {
+        // Only trigger auto-play if we are loading into the ALREADY active buffer
+        // (e.g. initial load or manual switch). 
+        // Preloaded videos in back-buffer will be played during crossfadeTo.
+        if (buffer === this.activeBuffer()) {
+          setTimeout(() => this.autoPlayVideos(buffer), 300);
+        }
+      }
+      return;
+    }
+
+    console.log(`Loading buffer ${buffer} for file: ${item.name}, slide: ${slideIndex}`);
+
+    let arrayBuffer = this.cachedBuffers.get(item.id);
+
+    if (!arrayBuffer) {
+      try {
+        console.log(`Fetching PPTX from: ${item.url}`);
+        const response = await fetch(item.url);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        arrayBuffer = await response.arrayBuffer();
+        this.cachedBuffers.set(item.id, arrayBuffer);
+        console.log(`Successfully fetched and cached ${item.name}`);
+      } catch (err) {
+        console.error('Failed to fetch PPTX. This might be a CORS issue. Error:', err);
+        return;
+      }
+    }
+
+    const previewer = this.getPreviewer(buffer);
+    if (!previewer) return;
+
+    try {
+      console.log(`[PPTX] Rendering ${item.name} to buffer ${buffer}`);
+
+      const startTime = Date.now();
+      await previewer.preview(arrayBuffer);
+      console.log(`[PPTX] Preview generated in ${Date.now() - startTime}ms. Switching to slide ${slideIndex}`);
+
+      console.log(`[PPTX] Total slides detected: ${previewer.slideCount}`);
+
+      previewer.renderSingleSlide(slideIndex - 1);
+      console.log(`[PPTX] renderSingleSlide(${slideIndex - 1}) called`);
+
+      // Auto-play videos if present
+      setTimeout(() => this.autoPlayVideos(buffer), 500);
+    } catch (err) {
+      console.error('[PPTX] Failed to render PPTX. Library error:', err);
+    }
+  }
+
+  private autoPlayVideos(buffer: 'A' | 'B') {
     const frame = this.getFrame(buffer);
-    frame.src = url as string;
+    const videos = frame.querySelectorAll('video');
+    console.log(`[PPTX] Found ${videos.length} videos in buffer ${buffer}`);
+    videos.forEach(video => {
+      video.muted = true; // Auto-play often requires muting
+      video.play().catch(err => console.error('[PPTX] Video play failed:', err));
+    });
   }
 
   // Pre-load the NEXT slide into the invisible back buffer
-  private preloadBackBuffer() {
+  private async preloadBackBuffer() {
     this.backBufferReady = false;
     const items = this.mediaService.items();
     if (!items.length) return;
@@ -440,16 +597,8 @@ export class SlideshowComponent implements OnInit, OnDestroy, AfterViewInit {
     }
 
     const back = this.backBuffer();
-    const frame = this.getFrame(back);
-
-    // When the back buffer finishes loading, mark it ready
-    const onLoad = () => {
-      this.backBufferReady = true;
-      frame.removeEventListener('load', onLoad);
-    };
-    frame.addEventListener('load', onLoad);
-
-    this.loadBuffer(back, nextFile, nextSlide);
+    await this.loadBuffer(back, nextFile, nextSlide);
+    this.backBufferReady = true;
   }
 
   // Perform the actual crossfade: swap buffers, then preload the next slide
@@ -472,6 +621,12 @@ export class SlideshowComponent implements OnInit, OnDestroy, AfterViewInit {
     this.progress.set(0);
     this.lastUpdate = Date.now();
 
+    // If the new active buffer is a native video, start it now
+    const newItem = items[fileIndex];
+    if (newItem?.type === 'video') {
+      setTimeout(() => this.autoPlayVideos(incoming), 100);
+    }
+
     // After animation completes, clear transition flag and preload the next
     setTimeout(() => {
       this.bufferTransitioning.set(false);
@@ -479,15 +634,25 @@ export class SlideshowComponent implements OnInit, OnDestroy, AfterViewInit {
     }, 900); // slightly longer than the 0.8s CSS transition
   }
 
+  onVideoEnded() {
+    console.log('[SLIDESHOW] Standalone video ended, advancing...');
+    this.advanceSlide();
+  }
+
   private advanceSlide() {
     const items = this.mediaService.items();
     if (!items.length) return;
 
-    const totalSlides = this.currentItem()?.slideCount || 999;
+    const item = this.currentItem();
+    const totalSlides = item?.slideCount || 1;
+
     let nextFile = this.activeIndex();
     let nextSlide = this.currentSlideIndex() + 1;
 
+    console.log(`[SLIDESHOW] Advance: Current File ${nextFile + 1}, Slide ${this.currentSlideIndex()}/${totalSlides}`);
+
     if (nextSlide > totalSlides) {
+      console.log('[SLIDESHOW] Reached end of slides for this file, moving to next file');
       nextFile = (nextFile + 1) % items.length;
       nextSlide = 1;
     }
@@ -511,7 +676,7 @@ export class SlideshowComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   togglePlay() {
-    this.isPlaying.update(v => !v);
+    this.isPlaying.update((v: boolean) => !v);
   }
 
   nextSlide() {
@@ -527,16 +692,16 @@ export class SlideshowComponent implements OnInit, OnDestroy, AfterViewInit {
 
     if (prevSlide < 1) {
       prevFile = (prevFile - 1 + items.length) % items.length;
-      prevSlide = items[prevFile] ? (this.currentItem()?.slideCount || 1) : 1;
+      prevSlide = items[prevFile] ? (items[prevFile].slideCount || 1) : 1;
     }
 
     this.crossfadeTo(prevFile, prevSlide);
   }
 
-  prepareOfficeUrl(fileUrl: string, slideIndex: number): string {
-    const cleanUrl = fileUrl.replace(/:443\//g, '/').replace(/:443/g, '');
-    const encodedSrc = encodeURIComponent(cleanUrl);
-    return `https://view.officeapps.live.com/op/embed.aspx?src=${encodedSrc}&wdSlideIndex=${slideIndex}&wdAutoStart=1&wdAr=1`;
+  forceRefresh() {
+    console.log('[PPTX] Manual refresh triggered');
+    this.cachedBuffers.clear();
+    this.initFirstSlide();
   }
 
   private startTimer() {
@@ -551,14 +716,23 @@ export class SlideshowComponent implements OnInit, OnDestroy, AfterViewInit {
       const now = Date.now();
       const delta = now - this.lastUpdate;
 
-      // For video slides: prefer per-file duration, fall back to global setting.
-      const isVideo = this.isVideoSlide();
-      const perFileDuration = this.currentItem()?.videoSlideDuration;
-      const duration = isVideo
+      const item = this.currentItem();
+      const isStandaloneVideo = item?.type === 'video';
+      const isPptxVideo = this.isVideoSlide() && item?.type === 'pptx';
+
+      // For standalone videos, we don't advance via timer; we wait for (ended) event.
+      if (isStandaloneVideo) {
+        this.progress.set(50); // Just show some pending state or keep at current
+        return;
+      }
+
+      // For PPTX video slides: prefer per-file duration, fall back to global setting.
+      const perFileDuration = item?.videoSlideDuration;
+      const duration = isPptxVideo
         ? (perFileDuration ?? this.settingsService.videoSlideDuration())
         : this.settingsService.slideDuration();
-      const newProgress = Math.min(100, (delta / duration) * 100);
 
+      const newProgress = Math.min(100, (delta / duration) * 100);
       this.progress.set(newProgress);
 
       if (newProgress >= 100) {
