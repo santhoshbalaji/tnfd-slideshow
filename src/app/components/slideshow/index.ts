@@ -379,6 +379,7 @@ export class SlideshowComponent implements OnInit, OnDestroy, AfterViewInit {
   private cachedBuffers = new Map<string, ArrayBuffer>();
 
   activeIndex = signal(0);
+  currentItemId = signal<string | null>(null);
   currentSlideIndex = signal(1);
   isPlaying = signal(true);
   progress = signal(0);
@@ -413,6 +414,35 @@ export class SlideshowComponent implements OnInit, OnDestroy, AfterViewInit {
   });
 
   constructor() {
+    effect(() => {
+      const items = this.mediaService.items();
+      if (items.length === 0) return;
+
+      const currentId = this.currentItemId();
+      if (!currentId) {
+        // Initial load
+        const firstItem = items[this.activeIndex()] || items[0];
+        this.currentItemId.set(firstItem.id);
+        return;
+      }
+
+      // Find the new index of our current item
+      const newIndex = items.findIndex(i => i.id === currentId);
+
+      if (newIndex !== -1 && newIndex !== this.activeIndex()) {
+        console.log(`[SLIDESHOW] Recalibrating index for ${currentId}: ${this.activeIndex()} -> ${newIndex}`);
+        this.activeIndex.set(newIndex);
+      } else if (newIndex === -1) {
+        console.log(`[SLIDESHOW] Current item ${currentId} was deleted. Resetting...`);
+        const resetIndex = Math.min(this.activeIndex(), items.length - 1);
+        this.activeIndex.set(Math.max(0, resetIndex));
+        const newItem = items[this.activeIndex()];
+        this.currentItemId.set(newItem?.id || null);
+        this.currentSlideIndex.set(1);
+        this.initFirstSlide(); // Re-sync buffers
+      }
+    });
+
     effect(() => {
       const items = this.mediaService.items();
       if (items.length > 0 && this.activeIndex() >= items.length) {
@@ -617,6 +647,7 @@ export class SlideshowComponent implements OnInit, OnDestroy, AfterViewInit {
 
     // Update our logical state
     this.activeIndex.set(fileIndex);
+    this.currentItemId.set(items[fileIndex]?.id || null);
     this.currentSlideIndex.set(slideIndex);
     this.progress.set(0);
     this.lastUpdate = Date.now();

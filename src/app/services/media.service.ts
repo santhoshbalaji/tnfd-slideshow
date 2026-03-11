@@ -28,6 +28,16 @@ export class MediaService {
 
     constructor() {
         this.loadMedia();
+        this.initRealtime();
+    }
+
+    private initRealtime() {
+        // Subscribe to all file changes in the media bucket
+        this.appwrite.client.subscribe(`buckets.${this.BUCKET_ID}.files`, (response: any) => {
+            console.log('[REALTIME] Media change detected:', response.events);
+            // Refresh the list when files are created, updated or deleted
+            this.loadMedia(100, 0);
+        });
     }
 
     async loadMedia(limit: number = 10, offset: number = 0) {
